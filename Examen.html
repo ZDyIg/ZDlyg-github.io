@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SHARKING JAM 2D</title>
+</head>
+
+<body>
+    <canvas id="canvas" width="800" height="800"></canvas>
+    <script type="text/javascript">
+        const canvas = document.getElementById("canvas");
+        const context = canvas.getContext("2d");
+
+        let pause = false;
+        var score = 0;
+        let level = 1;
+        let timer = 0;
+        let timerInterval = null;
+        let gameStart = false;
+
+        //Aquarium
+        const sellSize = {
+            x: 250,
+            y: 250,
+            width: 250,
+            height: 250
+        };
+
+        const exit = {
+            x: 750,
+            y: 350,
+            width: 70,
+            height: 30
+        };
+
+
+        const imgTiburoncin = new Image();
+        imgTiburoncin.src = 'shark.png';
+
+        const imgFish = new Image();
+        imgFish.src = 'fish.png';
+
+        const imgCoral = new Image();
+        imgCoral.src = 'coral.png';
+
+        const imgInstructions = new Image();
+        imgInstructions.src = 'arrow.png';
+
+        const audio = new Audio('sounds/point.mp3');
+        const audio2 = new Audio('sounds/bonk.mp3');
+        const audio3 = new Audio('sounds/music.mp3');
+
+        audio3.loop = true;
+        audio3.volume = 0.5;
+
+        window.onload = function () {
+            showLoadingScreen();
+            audio3.play();
+        };
+
+        //mostrar pantalla de carga
+        function showLoadingScreen() {
+            context.fillStyle = "rgba(0, 0, 0, 0.7)";
+            context.fillRect(0, 0, canvas.width, canvas.height);
+
+            context.fillStyle = "gray";
+            context.font = "30px bakso sapi";
+            context.textAlign = "center";
+            context.fillText("Click to Start Game", canvas.width / 2, canvas.height / 2);
+
+            context.fillStyle = "white";
+            context.font = "20px bakso sapi";
+            context.textAlign = "center";
+            context.fillText("ARROWS TO MOVE", canvas.width / 2, (canvas.height / 2) + 40);
+
+            imgInstructions.onload = function () {
+                const imgWidth = imgInstructions.width * 0.7; // Reducir el tamaño de la imagen al 50%
+                const imgHeight = imgInstructions.height * 0.7;
+                
+                const imgX = (canvas.width / 2) - (imgWidth / 2);
+                const imgY = (canvas.height / 2) + 10;
+                context.drawImage(imgInstructions, imgX, imgY, imgHeight, imgWidth);
+            };
+
+            //los vuelvo a mostrar (score y tiempo)
+            context.fillStyle = "black";
+            context.font = "20px bakso sapi";
+            context.textAlign = "left";
+            context.fillText("Score: " + score, 10, 30);
+
+            const minutes = Math.floor(timer / 60);
+            const seconds = timer % 60;
+            const formattedSeconds = seconds < 10 ? "0" + seconds : seconds;
+
+            context.fillText("Time: " + minutes + ":" + formattedSeconds, 10, 60);
+        }
+
+        function hideLoadingScreen() {
+            // Elimina la pantalla de carga
+            gameStart = true;
+            drawRectangles();  // Dibuja el estado inicial del juego
+            requestAnimationFrame(animate);
+        }
+
+        canvas.addEventListener('click', function () {
+            if (!gameStart) {
+                hideLoadingScreen();
+            }
+        });
+        class Obstacle {
+            constructor(x, y, width, height, color = 'gray') {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.color = color;
+                this.img = imgCoral;
+            }
+
+            draw() {
+                context.drawImage(this.img, this.x, this.y, this.width, this.height);
+            }
+        }
+
+        const obstacles = [];
+        function createObstacle() {
+            const obstacleWidth = 10;
+            const obstacleHeight = 10;
+            const side = Math.floor(Math.random() * 4);
+
+            const obstacle = new Obstacle(
+                (side === 1 || side === 3) ? (side === 1 ? sellSize.x + sellSize.width : sellSize.x - obstacleWidth) : sellSize.x,
+                (side === 0 || side === 2) ? (side === 0 ? sellSize.y - obstacleHeight : sellSize.y + sellSize.height) : sellSize.y,
+                (side === 1 || side === 3) ? obstacleWidth : sellSize.width,
+                (side === 0 || side === 2) ? obstacleHeight : sellSize.height
+            );
+
+            return obstacle;
+        }
+
+        function createObstacleSmall() {
+            const smallWidth = 70;
+            const smallHeight = 20;
+
+            const X = Math.floor(Math.random() * (sellSize.width - smallWidth)) + sellSize.x;
+            const Y = Math.floor(Math.random() * (sellSize.height - smallHeight)) + sellSize.y;
+
+            return new Obstacle(X, Y, smallWidth, smallHeight);
+        }
+
+        function createObstacles(level) {
+            obstacles.length = 0;
+            const numObstacles = Math.floor(Math.random() * 3) + 1;
+            for (let i = 0; i < numObstacles; i++) {
+                obstacles.push(createObstacle());
+            }
+
+            if (level >= 2) {
+                obstacles.push(createObstacleSmall());
+            }
+
+            if (level >= 3) {
+                obstacles.push(createObstacleSmall());
+                obstacles.push(createObstacleSmall());
+            }
+        }
+
+        function drawObstacles() {
+            obstacles.forEach(obstacle => obstacle.draw());
+        }
+
+        class Rectangle {
+            constructor(x, y, width, height, img, color, speedX, speedY) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.img = img;
+                this.color = color;
+                this.speedX = speedX;
+                this.speedY = speedY;
+                this.isHorizontal = Math.random() > 0.5;
+                this.isExiting = false;
+                this.isMoving = false;
+            }
+
+            draw() {
+                context.drawImage(this.img, this.x, this.y, this.width, this.height);
+            }
+
+            move() {
+                if (this.isMoving) {
+                    if (this.isHorizontal) {
+                        if (!this.isCollidingWithObstacles(this.x += this.speedX, this.y)) {
+                            this.x += this.speedX;
+                        }
+                    } else {
+                        if (!this.isCollidingWithAnyObstacles(this.x, this.y + this.speedY)) {
+                            this.y += this.speedY;
+                        }
+                    }
+                }
+            }
+
+            isCollidingWithAnyObstacles(newX, newY) {
+                return obstacles.some(obstacle => {
+                    newX < obstacle.x + obstacle.width &&
+                        newX + this.width > obstacle.x &&
+                        newY < obstacle.y + obstacle.height &&
+                        newY + this.height > obstacle.y;
+                });
+            }
+
+            isCollidingWithObstacles(rect, obstacle) {
+                const margin = 20;
+                return (
+                    rect.x < obstacle.x + obstacle.width + margin &&
+                    rect.x + rect.width > obstacle.x - margin &&
+                    rect.y < obstacle.y + obstacle.height + margin &&
+                    rect.y + rect.height > obstacle.y - margin
+                );
+            }
+
+
+            isOutOfBounds() {
+                return (
+                    this.x + this.width > sellSize.x + sellSize.width ||
+                    this.x < sellSize.x ||
+                    this.y + this.height > sellSize.y + sellSize.height ||
+                    this.y < sellSize.y
+                );
+            }
+        }
+
+        let rectangles = [];
+        let selectRect = null;
+        let exitingRects = [];
+
+        function getRandomColor() {
+            const trans = '0.5';
+            let color = 'rgba(';
+            for (let i = 0; i < 3; i++) {
+                color += Math.floor(Math.random() * 255) + ',';
+            }
+            color += trans + ')';
+            return color;
+        }
+
+        function createRectangle() {
+            const rectWidth = 70;
+            const rectHeight = 40;
+            let rect;
+            let overlapping;
+            let attempts = 0;
+
+            do {
+                rect = new Rectangle(
+                    Math.random() * (sellSize.width - rectWidth) + sellSize.x,
+                    Math.random() * (sellSize.height - rectHeight) + sellSize.y,
+                    rectWidth,
+                    rectHeight,
+                    imgTiburoncin,
+                    getRandomColor(),
+                    0, // Velocidad inicial en X
+                    0  // Velocidad inicial en Y
+                );
+                //colision de tiburones
+                overlapping = rectangles.some(otherRect => isColliding(rect, otherRect));
+                //colison de obstaculos
+                const isCollidingWithObstacles = obstacles.some(obstacle => isColliding(rect, obstacle));
+                //EL COCO
+                overlapping = overlapping || isCollidingWithObstacles;
+
+                attempts++;
+                if (attempts > 100) break;
+            } while (overlapping);
+
+            return rect;
+        }
+
+        for (let i = 0; i < 5; i++) {
+            rectangles.push(createRectangle());
+        }
+        createObstacles();
+
+        function drawParking() {
+            context.strokeStyle = "black";
+            context.lineWidth = 3;
+            context.strokeRect(sellSize.x, sellSize.y, sellSize.width, sellSize.height);
+        }
+
+        function drawExit() {
+            context.fillStyle = 'lightblue';
+            context.fillRect(exit.x, exit.y, exit.width, exit.height);
+            context.drawImage(imgFish, exit.x, exit.y, exit.width, exit.height);
+        }
+
+        function drawRectangles() {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            drawParking();
+            drawExit();
+            drawObstacles();
+            rectangles.forEach(rect => {
+                rect.draw();
+                if (rect === selectRect) {
+                    context.strokeStyle = 'black';
+                    context.lineWidth = 6;
+                    context.strokeRect(rect.x, rect.y, rect.width, rect.height);
+                }
+            });
+        }
+
+        function moveToExit(rect) {
+            const speed = 2;
+
+            // Verificamos si el rectángulo ha alcanzado la zona de salida
+            const rectInExitZone = rect.x + rect.width >= exit.x &&
+                rect.x <= exit.x + exit.width &&
+                rect.y + rect.height >= exit.y &&
+                rect.y <= exit.y + exit.height;
+
+            if (!rectInExitZone) {
+                if (rect.x < exit.x) {
+                    rect.x += speed;
+                } else if (rect.x > exit.x) {
+                    rect.x -= speed;
+                }
+                if (rect.y < exit.y) {
+                    rect.y += speed;
+                } else if (rect.y > exit.y) {
+                    rect.y -= speed;
+                }
+            } else {
+                // Eliminar el rectángulo cuando llegue completamente a la zona de salida
+                rectangles = rectangles.filter(r => r !== rect);
+                exitingRects = exitingRects.filter(r => r !== rect);
+                audio.play();
+                score += 10;
+
+            }
+
+
+        }
+
+        function startTimer() {
+            if (!timerInterval) {
+
+                timerInterval = setInterval(() => {
+                    timer++;
+                }, 1000);
+            }
+        }
+
+
+        function resetTimer() {
+            clearInterval(timerInterval);
+            // timerInterval = null; // Reiniciar el valor del intervalo
+            // timer = 0; // Reiniciar el temporizador
+            timerInterval = setInterval(() => {
+                timer++;
+            }, 1000);
+        }
+
+        function stopTimer() {
+            clearInterval(timerInterval);
+        }
+
+        function animate() {
+            if (!gameStart) {
+                showLoadingScreen();
+                return; // No iniciar la animación hasta que se haga clic
+            }
+
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            if (timer === 0) {
+                startTimer();
+            }
+
+            if (!pause) {
+                rectangles.forEach(rect => {
+                    if (rect.isMoving) {
+                        rect.move();
+                        if (rect.isOutOfBounds()) {
+                            rect.isMoving = false;
+                            rect.isExiting = true;
+                            exitingRects.push(rect);
+                            score++;
+                        }
+                    }
+
+                    rectangles.forEach(otherRect => {
+                        if (rect !== otherRect && isColliding(rect, otherRect)) {
+                            colision(rect, otherRect);
+                        }
+                    });
+
+                    obstacles.forEach(obstacle => {
+                        colision(rect, obstacle);
+                    });
+
+                    if (rect.isExiting) {
+                        moveToExit(rect);
+                    }
+                });
+
+                drawRectangles();
+
+                if (rectangles.length === 0) {
+                    level++
+                    timer = 0;
+                    createObstacles(level);// Crear obstaculos dentro
+                    // rellena nuevamente
+                    for (let i = 0; i < 5; i++) {
+                        rectangles.push(createRectangle());
+                    }
+
+                    console.log("Nivel: " + level + "iniciando");
+                }
+            } else {
+                // Pantalla de pausa
+                context.fillStyle = "rgba(195, 195, 195, 0.5)";
+                context.fillRect(0, 0, canvas.width, canvas.height);
+
+                drawPauseText();
+                stopTimer();
+            }
+
+            exitingRects.forEach(rect => {
+                moveToExit(rect);
+                if (rect.x >= exit.x && rect.y >= exit.y && rect.y + rect.height <= exit.y + exit.height) {
+                    rectangles = rectangles.filter(r => r !== rect);
+                    exitingRects = exitingRects.filter(r => r !== rect);
+                }
+            });
+            // Mostrar score 
+            console.log(score);
+            context.fillStyle = "black";
+            context.font = "20px bakso sapi";
+            context.fillText("Score: " + score, 10, 30);
+            requestAnimationFrame(animate);
+
+
+            // Mostrar tiempo
+            const minutes = Math.floor(timer / 60);
+            const seconds = timer % 60;
+            const formattedSeconds = seconds < 10 ? "0" + seconds : seconds;  // Formato 00 para los segundos
+
+            context.clearRect(0, 40, 150, 30);  // Limpia la parte donde se muestra el temporizador
+            context.fillStyle = "black";
+            context.font = "20px bakso sapi";
+            context.fillText("Time: " + minutes + ":" + formattedSeconds, 10, 60);
+
+        }
+        // Inicia la animación
+        drawRectangles();
+        requestAnimationFrame(animate);
+        showLoadingScreen();
+
+        function isColliding(rect1, rect2) {
+            return rect1.x < rect2.x + rect2.width &&
+                rect1.x + rect1.width > rect2.x &&
+                rect1.y < rect2.y + rect2.height &&
+                rect1.y + rect1.height > rect2.y;
+        }
+
+        function colision(rect1, rect2) {
+            if (isColliding(rect1, rect2)) {
+                console.log("entra en colision");
+                if (rect1.img === imgTiburoncin && rect2.img === imgTiburoncin) {
+                    if (selectRect === rect1 || selectRect === rect2) {
+                        audio2.play();
+
+                    }
+                }
+            }
+        }
+
+
+
+        function isExitZone(rect) {
+            return rect.x + rect.width >= exit.x &&
+                rect.y >= exit.y &&
+                rect.y + rect.height <= exit.y + exit.height;
+        }
+
+        canvas.addEventListener('click', function (event) {
+            const mouseX = event.offsetX;
+            const mouseY = event.offsetY;
+
+            rectangles.forEach(rect => {
+                if (mouseX >= rect.x && mouseX <= rect.x + rect.width &&
+                    mouseY >= rect.y && mouseY <= rect.y + rect.height) {
+                    selectRect = rect;
+                }
+            });
+
+            drawRectangles();
+        });
+
+        document.addEventListener('keydown', function (event) {
+            event.preventDefault();
+            if (event.key === 'p') {
+                console.log("PAUSA");
+                pause = !pause;
+                if (!pause) {
+                    resetTimer();
+                    requestAnimationFrame(animate);
+                }
+            };
+
+            if (selectRect !== null) {
+
+                let originalX = selectRect.x;
+                let originalY = selectRect.y;
+                let collidedX = false;
+                let collidedY = false;
+
+                switch (event.key) {
+                    case 'ArrowUp':
+                        selectRect.y -= 5;
+                        break;
+                    case 'ArrowDown':
+                        selectRect.y += 5;
+                        break;
+                    case 'ArrowLeft':
+                        selectRect.x -= 5;
+                        break;
+                    case 'ArrowRight':
+                        selectRect.x += 5;
+                        console.log("¿Llega2?")
+                        break;
+                    case ' ':
+                        console.log("¿Llega3?")
+                        selectRect.isHorizontal = !selectRect.isHorizontal;
+                        break;
+                    default:
+                        break;
+                }
+
+                rectangles.forEach(rect => {
+                    if (rect !== selectRect) {
+                        if (isColliding(selectRect, rect)) {
+                            colision(selectRect, rect);
+                            collidedX = true;
+                            collidedY = true;
+                        }
+                    }
+                });
+
+                obstacles.forEach(obstacle => {
+                    if (isColliding(selectRect, obstacle)) {
+                        colision(selectRect, obstacle);
+                        collidedX = true;
+                        collidedY = true;
+                    }
+                });
+
+                if (collidedX) selectRect.x = originalX;
+                if (collidedY) selectRect.y = originalY;
+
+                if (selectRect.isOutOfBounds()) {
+                    selectRect.isExiting = true;
+                    exitingRects.push(selectRect);
+                    selectRect = null;
+                }
+
+                drawRectangles();
+            };
+        });
+
+        function drawPauseText() {
+            context.font = "30px bakso sapi";
+            context.fillStyle = "black";
+            context.fillText("PAUSADO", canvas.width / 2 - 80, canvas.height / 2);
+        }
+
+        function clearPauseText() {
+            context.clearRect(0, 0, canvas.width / 2 - 80, canvas.height / 2 - 30, 160, 40);
+        }
+
+        imgTiburoncin.onload = () => {
+            animate();
+            drawRectangles();
+        };
+
+        imgFish.onload = () => {
+            drawRectangles();
+        };
+
+        // Selecciona el primer rectángulo para probar
+        selectRect = rectangles[0]; // Reemplaza con el primer rectángulo de la lista
+    </script>
+
+    <style type="text/css">
+        body {
+            background-color: #e0e0e0;
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        canvas {
+            background-color: #ffffff;
+            border: 5px solid #333;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+        }
+
+        /*Estilo para el contenedor*/
+        .canvas-container {
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 20px;
+            box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1);
+            display: inline-block;
+        }
+    </style>
+
+</body>
+
+</html>
